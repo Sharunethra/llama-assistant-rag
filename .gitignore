@@ -1,0 +1,23 @@
+# Environment variables
+.env
+*.env
+
+# Python generated artifacts
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+venv/
+backend/venv/
+
+# Node / React generated artifacts
+node_modules/
+**/node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# System / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
