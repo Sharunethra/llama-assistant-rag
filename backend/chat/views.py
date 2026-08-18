@@ -170,36 +170,32 @@ class MessageCreateView(APIView):
 
         # If a document is explicitly selected, use it
         if document_id:
-           document = get_object_or_404(
-        Document,
-        pk=document_id,
-        user=request.user
-        )
-
+            document = get_object_or_404(
+                Document,
+                pk=document_id,
+                user=request.user
+            )
         # Otherwise, try to detect a filename mentioned in the user's question
         else:
-          import re
-
-        filename_match = re.search(
-        r'([A-Za-z0-9_\-(). ]+\.(?:pdf|txt|doc|docx))',
-        content,
-        re.IGNORECASE
-         )
-
-        if filename_match:
-           mentioned_filename = filename_match.group(1).strip()
-
-        document = Document.objects.filter(
-            user=request.user,
-            filename__iexact=mentioned_filename
-        ).first()
+            import re
+            filename_match = re.search(
+                r'([A-Za-z0-9_\-(). ]+\.(?:pdf|txt|doc|docx))',
+                content,
+                re.IGNORECASE
+            )
+            if filename_match:
+                mentioned_filename = filename_match.group(1).strip()
+                document = Document.objects.filter(
+                    user=request.user,
+                    filename__iexact=mentioned_filename
+                ).first()
 
         # Retrieve RAG context if a document was found
         if document:
-         document_context = DocumentService.get_relevant_chunks(
-        document,
-        content
-        )
+            document_context = DocumentService.get_relevant_chunks(
+                document,
+                content
+            )
 
         # 6. Call LLM Service with message history, user query, and optional document context
         try:

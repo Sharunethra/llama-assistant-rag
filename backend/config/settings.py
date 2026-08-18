@@ -184,9 +184,14 @@ CSRF_TRUSTED_ORIGINS = [
 OLLAMA_BASE_URL = os.getenv(
     'OLLAMA_BASE_URL',
     'http://localhost:11434'
-)
+).rstrip('/')
 
 OLLAMA_MODEL = os.getenv(
     'OLLAMA_MODEL',
     'llama3.2:3b'
-)
+).strip().strip("'").strip('"')
+
+raw_ollama_key = os.getenv('OLLAMA_API_KEY', '').strip().strip("'").strip('"')
+if raw_ollama_key.startswith('Bearer '):
+    raw_ollama_key = raw_ollama_key[7:].strip()
+OLLAMA_API_KEY = raw_ollama_key

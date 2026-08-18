@@ -4,10 +4,28 @@ import logging
 import socket
 import urllib.request
 import urllib.error
-from wsgiref import headers
+from django.conf import settings
 
-OLLAMA_API_KEY = os.getenv('OLLAMA_API_KEY')
 logger = logging.getLogger(__name__)
+
+
+def get_sanitized_ollama_config():
+    """
+    Helper function to load and sanitize Ollama settings from environment or Django settings.
+    Strips quotes, trailing slashes, whitespace, and redundant 'Bearer ' prefixes.
+    """
+    base_url = (os.getenv('OLLAMA_BASE_URL') or getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')).rstrip('/')
+    model_name = (os.getenv('OLLAMA_MODEL') or getattr(settings, 'OLLAMA_MODEL', 'llama3.2:3b')).strip().strip("'").strip('"')
+
+    api_key = os.getenv('OLLAMA_API_KEY') or getattr(settings, 'OLLAMA_API_KEY', None)
+    if api_key:
+        api_key = str(api_key).strip().strip("'").strip('"')
+        if api_key.startswith('Bearer '):
+            api_key = api_key[7:].strip()
+        if not api_key:
+            api_key = None
+
+    return base_url, model_name, api_key
 
 
 class LLMServiceError(Exception):
@@ -28,7 +46,7 @@ ERROR_PREFIXES = (
 
 class LLMService:
     """
-    Service responsible for constructing LLM prompt context and sending requests to local Ollama API.
+    Service responsible for constructing LLM prompt context and sending requests to local/cloud Ollama API.
     Supports optional document grounding context for RAG questions.
     """
 
@@ -36,11 +54,9 @@ class LLMService:
     def generate_response(messages_queryset, user_prompt: str, document_context: list = None) -> str:
         """
         Takes conversation message history, the new user prompt, and optional document context chunks,
-        sends the formatted context to the local Ollama API, and returns the generated AI response text.
+        sends the formatted context to the Ollama API, and returns the generated AI response text.
         """
-        base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')
-        model_name = os.getenv('OLLAMA_MODEL', 'llama3.2:3b')
-        api_key = os.getenv('OLLAMA_API_KEY')
+        base_url, model_name, api_key = get_sanitized_ollama_config()
 
         system_instruction = "You are a helpful, precise, and polite AI assistant built to answer questions clearly."
 
@@ -91,19 +107,23 @@ class LLMService:
 
         url = f"{base_url}/api/chat"
 
-        api_key = os.getenv("OLLAMA_API_KEY")
-
         headers = {
-          "Content-Type": "application/json",
+            "Content-Type": "application/json",
         }
 
         if api_key:
-           headers["Authorization"] = f"Bearer {api_key}"
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        logger.info(
+            f"Ollama API request to {url} using model '{model_name}'. "
+            f"api_key_present={bool(api_key)}, api_key_length={len(api_key) if api_key else 0}"
+        )
+
         try:
             data = json.dumps(payload).encode('utf-8')
             req = urllib.request.Request(url, data=data, headers=headers, method='POST')
 
-            # Execute HTTP request to local Ollama API
+            # Execute HTTP request to Ollama API
             with urllib.request.urlopen(req, timeout=120) as response:
                 if response.status == 200:
                     resp_body = response.read().decode('utf-8')
@@ -128,7 +148,7 @@ class LLMService:
                 raise LLMServiceError("AI service request timed out while generating response. Please try again.")
             raise LLMServiceError(
                 f"AI service is unavailable. Please make sure Ollama is installed and running "
-                f"locally at {base_url}."
+                f"at {base_url}."
             )
 
         except (TimeoutError, socket.timeout):
@@ -141,3 +161,4 @@ class LLMService:
         except Exception as e:
             logger.error(f"Unexpected error in LLMService: {str(e)}")
             raise LLMServiceError(f"Error communicating with AI service: {str(e)}")
+
