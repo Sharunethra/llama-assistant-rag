@@ -160,15 +160,46 @@ class MessageCreateView(APIView):
             conversation.title = content[:35] + ('...' if len(content) > 35 else '')
             conversation.save()
 
-        # 5. Check if a document_id was provided for document-based RAG Q&A
+        # 5. Retrieve document context for document-based RAG Q&A
         document_context = None
         document_id = request.data.get('document_id')
+        from documents.models import Document
+        from documents.services import DocumentService
+
+        document = None
+
+        # If a document is explicitly selected, use it
         if document_id:
-            from documents.models import Document
-            from documents.services import DocumentService
-            # Enforce user ownership of the uploaded document
-            document = get_object_or_404(Document, pk=document_id, user=request.user)
-            document_context = DocumentService.get_relevant_chunks(document, content)
+           document = get_object_or_404(
+        Document,
+        pk=document_id,
+        user=request.user
+        )
+
+        # Otherwise, try to detect a filename mentioned in the user's question
+        else:
+          import re
+
+        filename_match = re.search(
+        r'([A-Za-z0-9_\-(). ]+\.(?:pdf|txt|doc|docx))',
+        content,
+        re.IGNORECASE
+         )
+
+        if filename_match:
+           mentioned_filename = filename_match.group(1).strip()
+
+        document = Document.objects.filter(
+            user=request.user,
+            filename__iexact=mentioned_filename
+        ).first()
+
+        # Retrieve RAG context if a document was found
+        if document:
+         document_context = DocumentService.get_relevant_chunks(
+        document,
+        content
+        )
 
         # 6. Call LLM Service with message history, user query, and optional document context
         try:
