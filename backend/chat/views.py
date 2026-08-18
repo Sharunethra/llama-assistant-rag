@@ -168,34 +168,65 @@ class MessageCreateView(APIView):
 
         document = None
 
-        # If a document is explicitly selected, use it
+        # Stage 1: Explicit document_id passed from UI
         if document_id:
             document = get_object_or_404(
                 Document,
                 pk=document_id,
                 user=request.user
             )
-        # Otherwise, try to detect a filename mentioned in the user's question
+        # Stage 2: Detect uploaded document filename mentioned in user's question
         else:
-            import re
-            filename_match = re.search(
-                r'([A-Za-z0-9_\-(). ]+\.(?:pdf|txt|doc|docx))',
-                content,
-                re.IGNORECASE
-            )
-            if filename_match:
-                mentioned_filename = filename_match.group(1).strip()
-                document = Document.objects.filter(
-                    user=request.user,
-                    filename__iexact=mentioned_filename
-                ).first()
+            user_documents = list(Document.objects.filter(user=request.user))
+            # Sort by filename length descending so longer matching filenames match first
+            user_documents.sort(key=lambda d: len(d.filename), reverse=True)
+
+            content_lower = content.lower()
+            for user_doc in user_documents:
+                if user_doc.filename.lower() in content_lower:
+                    document = user_doc
+                    break
+
+            # Fallback candidate regex if not matched directly against user's documents
+            if not document:
+                import re
+                match = re.search(
+                    r'([A-Za-z0-9_\-()–—\s]+\.(?:pdf|txt|doc|docx))',
+                    content,
+                    re.IGNORECASE
+                )
+                if match:
+                    candidate = match.group(1).strip()
+                    document = Document.objects.filter(
+                        user=request.user,
+                        filename__iexact=candidate
+                    ).first()
 
         # Retrieve RAG context if a document was found
         if document:
+            # If document has 0 chunks, return clear error (Requirement 8)
+            available_chunks_count = document.chunks.count()
+            if available_chunks_count == 0:
+                return Response(
+                    {'error': f'Document "{document.filename}" has no processed text chunks. Please re-upload or reprocess the document.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             document_context = DocumentService.get_relevant_chunks(
                 document,
                 content
             )
+
+        # Safe diagnostic logging (Requirement 6)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"RAG Request Diagnostics: document_id_received={document_id}, "
+            f"selected_filename='{document.filename if document else None}', "
+            f"available_chunks={document.chunks.count() if document else 0}, "
+            f"chunks_passed_to_llm={len(document_context) if document_context else 0}, "
+            f"broad_query={DocumentService.is_broad_query(content)}"
+        )
 
         # 6. Call LLM Service with message history, user query, and optional document context
         try:

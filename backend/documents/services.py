@@ -57,8 +57,8 @@ def clean_query_text(query_text: str, filename: str = None) -> str:
         pattern = re.escape(filename)
         cleaned = re.sub(pattern, "this document", cleaned, flags=re.IGNORECASE)
 
-    # 2. General regex for filenames like 'searching 8.pdf', 'document.txt', etc.
-    cleaned = re.sub(r'\b[\w\s-]+\.(pdf|txt|docx?)\b', 'this document', cleaned, flags=re.IGNORECASE)
+    # 2. General fallback regex for non-spaced filenames like 'document.pdf', 'data-1.txt'
+    cleaned = re.sub(r'\b[A-Za-z0-9_\-()]+\.(?:pdf|txt|doc|docx)\b', 'this document', cleaned, flags=re.IGNORECASE)
 
     # Clean up double spaces or trailing punctuation artifacts
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
