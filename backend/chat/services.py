@@ -4,7 +4,9 @@ import logging
 import socket
 import urllib.request
 import urllib.error
+from wsgiref import headers
 
+OLLAMA_API_KEY = os.getenv('OLLAMA_API_KEY')
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,7 @@ class LLMService:
         """
         base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')
         model_name = os.getenv('OLLAMA_MODEL', 'llama3.2:3b')
+        api_key = os.getenv('OLLAMA_API_KEY')
 
         system_instruction = "You are a helpful, precise, and polite AI assistant built to answer questions clearly."
 
@@ -87,8 +90,15 @@ class LLMService:
         }
 
         url = f"{base_url}/api/chat"
-        headers = {"Content-Type": "application/json"}
 
+        api_key = os.getenv("OLLAMA_API_KEY")
+
+        headers = {
+          "Content-Type": "application/json",
+        }
+
+        if api_key:
+           headers["Authorization"] = f"Bearer {api_key}"
         try:
             data = json.dumps(payload).encode('utf-8')
             req = urllib.request.Request(url, data=data, headers=headers, method='POST')
