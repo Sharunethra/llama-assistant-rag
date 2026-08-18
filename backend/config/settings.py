@@ -194,4 +194,7 @@ OLLAMA_MODEL = os.getenv(
 raw_ollama_key = os.getenv('OLLAMA_API_KEY', '').strip().strip("'").strip('"')
 if raw_ollama_key.startswith('Bearer '):
     raw_ollama_key = raw_ollama_key[7:].strip()
-OLLAMA_API_KEY = raw_ollama_key
+OLLAMA_API_KEY = raw_ollama_key
+
+HF_TOKEN = os.getenv('HF_TOKEN', '').strip().strip("'").strip('"')
+

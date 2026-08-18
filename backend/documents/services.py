@@ -2,13 +2,16 @@ import os
 import re
 import math
 import logging
+import threading
 import pypdf
+from django.conf import settings
 from .models import Document, DocumentChunk
 
 logger = logging.getLogger(__name__)
 
-# Module-level singleton for fastembed model
+# Module-level thread-safe singleton for fastembed model
 _EMBEDDING_MODEL = None
+_EMBEDDING_LOCK = threading.Lock()
 
 BROAD_QUERY_PATTERNS = [
     r"\bwhat\s+is\s+(this|the)\s+(document|book|pdf|file)\s+about\b",
@@ -64,18 +67,30 @@ def clean_query_text(query_text: str, filename: str = None) -> str:
 
 def get_embedding_model():
     """
-    Lazy initialization singleton for fastembed TextEmbedding model.
+    Thread-safe lazy initialization singleton for fastembed TextEmbedding model.
+    Configured with single-threaded ONNX execution (threads=1) to prevent memory spikes on Render.
     """
     global _EMBEDDING_MODEL
     if _EMBEDDING_MODEL is None:
-        try:
-            from fastembed import TextEmbedding
-            # Lightweight BAAI/bge-small-en-v1.5 model (384 dimensions)
-            _EMBEDDING_MODEL = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-            logger.info("FastEmbed TextEmbedding model initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize FastEmbed model: {e}")
-            raise RuntimeError(f"Embedding model initialization failed: {e}")
+        with _EMBEDDING_LOCK:
+            if _EMBEDDING_MODEL is None:
+                try:
+                    from fastembed import TextEmbedding
+                    hf_token = os.getenv('HF_TOKEN') or getattr(settings, 'HF_TOKEN', None)
+                    logger.info(
+                        f"Initializing FastEmbed TextEmbedding (model='BAAI/bge-small-en-v1.5', threads=1, "
+                        f"hf_token_present={bool(hf_token)})..."
+                    )
+
+                    # Initialize single-threaded FastEmbed model (384 dimensions)
+                    _EMBEDDING_MODEL = TextEmbedding(
+                        model_name="BAAI/bge-small-en-v1.5",
+                        threads=1
+                    )
+                    logger.info("FastEmbed TextEmbedding model (BAAI/bge-small-en-v1.5) initialized successfully.")
+                except Exception as e:
+                    logger.error(f"Failed to initialize FastEmbed model: {e}")
+                    raise RuntimeError(f"Embedding model initialization failed: {e}")
     return _EMBEDDING_MODEL
 
 
@@ -128,13 +143,14 @@ class DocumentService:
     @staticmethod
     def generate_embeddings(texts: list) -> list:
         """
-        Generates dense 384-dimensional vector embeddings for a list of text strings using local fastembed.
+        Generates dense 384-dimensional vector embeddings for a list of text strings using fastembed.
+        Uses batch_size=16 for memory efficiency.
         """
         if not texts:
             return []
         model = get_embedding_model()
-        # model.embed returns a generator of numpy arrays
-        embeddings_gen = model.embed(texts)
+        # model.embed returns a generator of numpy arrays; batch_size keeps memory footprint steady
+        embeddings_gen = model.embed(texts, batch_size=16)
         return [vec.tolist() for vec in embeddings_gen]
 
     @staticmethod
