@@ -173,8 +173,8 @@ class DocumentService:
     @classmethod
     def create_chunks(cls, document: Document, text: str, chunk_size_words: int = 400, overlap_words: int = 50):
         """
-        Splits text into overlapping chunks, generates vector embeddings via fastembed,
-        and bulk stores DocumentChunk DB records.
+        Splits text into overlapping chunks, streams vector embeddings via fastembed generator,
+        and bulk stores DocumentChunk DB records in memory-safe batches.
         """
         words = text.split()
         if not words:
@@ -191,19 +191,32 @@ class DocumentService:
             if i + chunk_size_words >= len(words):
                 break
 
-        # Generate vector embeddings for all chunk texts
-        embeddings = cls.generate_embeddings(chunk_texts)
+        if not chunk_texts:
+            return
 
-        chunks_to_create = []
-        for idx, (chunk_text, emb) in enumerate(zip(chunk_texts, embeddings)):
-            chunks_to_create.append(DocumentChunk(
+        model = get_embedding_model()
+
+        # Stream embedding generator with batch_size=16 for steady low memory usage
+        embeddings_gen = model.embed(chunk_texts, batch_size=16)
+
+        batch_objects = []
+        batch_limit = 32
+
+        for idx, (chunk_text, vec) in enumerate(zip(chunk_texts, embeddings_gen)):
+            batch_objects.append(DocumentChunk(
                 document=document,
                 content=chunk_text,
                 chunk_index=idx,
-                embedding=emb
+                embedding=vec.tolist()
             ))
 
-        DocumentChunk.objects.bulk_create(chunks_to_create)
+            if len(batch_objects) >= batch_limit:
+                DocumentChunk.objects.bulk_create(batch_objects)
+                batch_objects.clear()
+
+        if batch_objects:
+            DocumentChunk.objects.bulk_create(batch_objects)
+            batch_objects.clear()
 
     @classmethod
     def clean_query_text(cls, query_text: str, filename: str = None) -> str:
