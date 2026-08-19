@@ -134,13 +134,24 @@ class LLMService:
                     raise LLMServiceError(f"Ollama API returned unexpected status code: {response.status}")
 
         except urllib.error.HTTPError as e:
-            logger.error(f"HTTPError from Ollama service: {e.code} - {e.reason}")
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+
+            logger.error(
+                f"Ollama HTTP error {e.code}: {e.reason} | Response: {error_body}"
+            )
+
             if e.code == 404:
                 raise LLMServiceError(
-                    f"Model '{model_name}' was not found in Ollama. "
-                    f"Please run 'ollama pull {model_name}' in your terminal."
+                    f"Model '{model_name}' was not found in Ollama."
                 )
-            raise LLMServiceError(f"Ollama HTTP error ({e.code}): {e.reason}")
+
+            raise LLMServiceError(
+                f"Ollama HTTP error ({e.code}): {error_body or e.reason}"
+            )
 
         except urllib.error.URLError as e:
             logger.error(f"URLError connecting to Ollama: {str(e.reason)}")
